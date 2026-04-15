@@ -20,9 +20,6 @@ if not MANAGER_USERNAME:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Словник: user_id -> message_id в групі
-user_message_map = {}
-
 def manager_link(text: str) -> str:
     return f"https://t.me/{MANAGER_USERNAME}?text={urllib.parse.quote(text)}"
 
@@ -83,37 +80,27 @@ async def start(message: types.Message) -> None:
         f"🆔 ID: <code>{user.id}</code>\n"
         f"📣 Джерело: {source}"
     )
-    sent = await bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML")
-    user_message_map[user.id] = sent.message_id
+
+    await bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML")
 
     if LEADS_WEBHOOK_URL:
         asyncio.create_task(send_lead(user, source))
-
-@dp.message(F.chat.type == "private")
-async def forward_to_group(message: types.Message) -> None:
-    user = message.from_user
-    username = f"@{user.username}" if user.username else "немає username"
-    text = (
-        f"💬 <b>Повідомлення від клієнта</b>\n"
-        f"👤 {user.full_name} ({username})\n"
-        f"🆔 ID: <code>{user.id}</code>\n\n"
-        f"➡️ {message.text or '[не текст]'}"
-    )
-    await bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML")
 
 @dp.message(F.chat.id == GROUP_CHAT_ID, F.reply_to_message)
 async def reply_to_user(message: types.Message) -> None:
     replied_text = message.reply_to_message.text or ""
 
-    match = re.search(r"ID:\s*(\d+)", replied_text)
+    match = re.search(r"<code>(\d+)</code>", replied_text)
     if not match:
-        match = re.search(r"<code>(\d+)</code>", replied_text)
+        match = re.search(r"ID:\s*(\d+)", replied_text)
 
     if not match:
         return
 
     client_id = int(match.group(1))
-    await bot.send_message(client_id, f"💬 Менеджер: {message.text}")
+
+    if message.text:
+        await bot.send_message(client_id, f"💬 Менеджер: {message.text}")
 
 @dp.message(Command("restart"))
 async def restart_cmd(message: types.Message) -> None:
