@@ -20,8 +20,10 @@ if not MANAGER_USERNAME:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+
 def manager_link(text: str) -> str:
     return f"https://t.me/{MANAGER_USERNAME}?text={urllib.parse.quote(text)}"
+
 
 def _post_lead(payload: dict) -> None:
     if not LEADS_WEBHOOK_URL:
@@ -31,6 +33,7 @@ def _post_lead(payload: dict) -> None:
     except Exception:
         pass
 
+
 async def send_lead(user: types.User, source: str) -> None:
     payload = {
         "telegram_id": user.id,
@@ -39,6 +42,7 @@ async def send_lead(user: types.User, source: str) -> None:
         "source": source,
     }
     await asyncio.to_thread(_post_lead, payload)
+
 
 def main_buttons() -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(
@@ -58,11 +62,52 @@ def main_buttons() -> types.InlineKeyboardMarkup:
         ]
     )
 
+
 async def show_chat_cta(message: types.Message) -> None:
     await message.answer(
         "Щоб зв'язатись з нашим менеджером, натискай кнопку нижче 👇🏼",
         reply_markup=main_buttons(),
     )
+
+
+def extract_message_content(message: types.Message) -> str:
+    if message.text:
+        return message.text
+
+    if message.document:
+        file_name = message.document.file_name or "без назви"
+        caption = f"\nПідпис: {message.caption}" if message.caption else ""
+        return f"[Документ: {file_name}]{caption}"
+
+    if message.photo:
+        caption = f"\nПідпис: {message.caption}" if message.caption else ""
+        return f"[Фото]{caption}"
+
+    if message.video:
+        caption = f"\nПідпис: {message.caption}" if message.caption else ""
+        return f"[Відео]{caption}"
+
+    if message.voice:
+        return "[Голосове повідомлення]"
+
+    if message.audio:
+        title = message.audio.title or message.audio.file_name or "без назви"
+        caption = f"\nПідпис: {message.caption}" if message.caption else ""
+        return f"[Аудіо: {title}]{caption}"
+
+    if message.sticker:
+        emoji = f" {message.sticker.emoji}" if message.sticker.emoji else ""
+        return f"[Стікер{emoji}]"
+
+    if message.video_note:
+        return "[Відеоповідомлення]"
+
+    if message.animation:
+        caption = f"\nПідпис: {message.caption}" if message.caption else ""
+        return f"[GIF / анімація]{caption}"
+
+    return "[Невідомий тип повідомлення]"
+
 
 @dp.message(CommandStart())
 async def start(message: types.Message) -> None:
@@ -86,9 +131,85 @@ async def start(message: types.Message) -> None:
     if LEADS_WEBHOOK_URL:
         asyncio.create_task(send_lead(user, source))
 
+
+@dp.message(F.chat.type == "private")
+async def forward_to_group(message: types.Message) -> None:
+    if message.text and message.text.startswith("/"):
+        return
+
+    user = message.from_user
+    username = f"@{user.username}" if user.username else "немає username"
+    content = extract_message_content(message)
+
+    text = (
+        f"💬 <b>Повідомлення від клієнта</b>\n"
+        f"👤 {user.full_name} ({username})\n"
+        f"🆔 ID: <code>{user.id}</code>\n\n"
+        f"➡️ {content}"
+    )
+
+    await bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML")
+
+    if message.document:
+        await bot.forward_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+
+    elif message.photo:
+        await bot.forward_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+
+    elif message.video:
+        await bot.forward_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+
+    elif message.voice:
+        await bot.forward_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+
+    elif message.audio:
+        await bot.forward_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+
+    elif message.sticker:
+        await bot.forward_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+
+    elif message.video_note:
+        await bot.forward_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+
+    elif message.animation:
+        await bot.forward_message(
+            chat_id=GROUP_CHAT_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+
+
 @dp.message(F.chat.id == GROUP_CHAT_ID, F.reply_to_message)
 async def reply_to_user(message: types.Message) -> None:
-    replied_text = message.reply_to_message.text or ""
+    replied_text = message.reply_to_message.html_text or message.reply_to_message.text or ""
 
     match = re.search(r"<code>(\d+)</code>", replied_text)
     if not match:
@@ -101,10 +222,18 @@ async def reply_to_user(message: types.Message) -> None:
 
     if message.text:
         await bot.send_message(client_id, f"💬 Менеджер: {message.text}")
+    elif message.document or message.photo or message.video or message.voice or message.audio:
+        await bot.copy_message(
+            chat_id=client_id,
+            from_chat_id=GROUP_CHAT_ID,
+            message_id=message.message_id,
+        )
+
 
 @dp.message(Command("restart"))
 async def restart_cmd(message: types.Message) -> None:
     await show_chat_cta(message)
+
 
 @dp.message(Command("contacts"))
 async def contacts_cmd(message: types.Message) -> None:
@@ -122,9 +251,11 @@ async def contacts_cmd(message: types.Message) -> None:
         reply_markup=kb,
     )
 
+
 async def main() -> None:
     print("🤖 Bot started")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
