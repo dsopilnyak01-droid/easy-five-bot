@@ -10,8 +10,6 @@ from aiogram.filters import CommandStart, Command
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MANAGER_USERNAME = os.getenv("MANAGER_USERNAME")
 LEADS_WEBHOOK_URL = os.getenv("LEADS_WEBHOOK_URL")
-
-# Новий webhook Make для подій із бота
 MAKE_BOT_WEBHOOK_URL = os.getenv("MAKE_BOT_WEBHOOK_URL")
 
 GROUP_CHAT_ID = -5233088810  # ваша група менеджерів
@@ -24,7 +22,7 @@ if not MANAGER_USERNAME:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Зберігаємо зв'язок telegram user -> lead_id
+# Зв'язка telegram user -> lead_id
 user_leads: dict[int, str] = {}
 
 
@@ -60,7 +58,7 @@ async def send_lead(user: types.User, source: str) -> None:
     await asyncio.to_thread(_post_lead, payload)
 
 
-async def send_bot_event(payload: dict) -> None:
+async def send_bot_start_event(payload: dict) -> None:
     await asyncio.to_thread(_post_bot_event, payload)
 
 
@@ -129,28 +127,6 @@ def extract_message_content(message: types.Message) -> str:
     return "[Невідомий тип повідомлення]"
 
 
-def detect_message_type(message: types.Message) -> str:
-    if message.text:
-        return "text"
-    if message.document:
-        return "document"
-    if message.photo:
-        return "photo"
-    if message.video:
-        return "video"
-    if message.voice:
-        return "voice"
-    if message.audio:
-        return "audio"
-    if message.sticker:
-        return "sticker"
-    if message.video_note:
-        return "video_note"
-    if message.animation:
-        return "animation"
-    return "unknown"
-
-
 @dp.message(CommandStart())
 async def start(message: types.Message) -> None:
     await show_chat_cta(message)
@@ -176,7 +152,7 @@ async def start(message: types.Message) -> None:
         asyncio.create_task(send_lead(user, lead_id))
 
     if MAKE_BOT_WEBHOOK_URL:
-        asyncio.create_task(send_bot_event({
+        asyncio.create_task(send_bot_start_event({
             "event": "bot_start",
             "lead_id": lead_id,
             "telegram_id": user.id,
@@ -194,7 +170,6 @@ async def forward_to_group(message: types.Message) -> None:
     user = message.from_user
     username = f"@{user.username}" if user.username else "немає username"
     content = extract_message_content(message)
-    message_type = detect_message_type(message)
     lead_id = user_leads.get(user.id, "unknown")
 
     text = (
@@ -207,70 +182,16 @@ async def forward_to_group(message: types.Message) -> None:
 
     await bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML")
 
-    if MAKE_BOT_WEBHOOK_URL:
-        asyncio.create_task(send_bot_event({
-            "event": "client_message",
-            "lead_id": lead_id,
-            "telegram_id": user.id,
-            "username": f"@{user.username}" if user.username else "",
-            "full_name": user.full_name,
-            "message_type": message_type,
-            "message_text": message.text or "",
-            "caption": message.caption or "",
-            "content_preview": content,
-            "timestamp": int(message.date.timestamp()) if message.date else None,
-        }))
-
-    if message.document:
-        await bot.forward_message(
-            chat_id=GROUP_CHAT_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-
-    elif message.photo:
-        await bot.forward_message(
-            chat_id=GROUP_CHAT_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-
-    elif message.video:
-        await bot.forward_message(
-            chat_id=GROUP_CHAT_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-
-    elif message.voice:
-        await bot.forward_message(
-            chat_id=GROUP_CHAT_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-
-    elif message.audio:
-        await bot.forward_message(
-            chat_id=GROUP_CHAT_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-
-    elif message.sticker:
-        await bot.forward_message(
-            chat_id=GROUP_CHAT_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-
-    elif message.video_note:
-        await bot.forward_message(
-            chat_id=GROUP_CHAT_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-
-    elif message.animation:
+    if (
+        message.document
+        or message.photo
+        or message.video
+        or message.voice
+        or message.audio
+        or message.sticker
+        or message.video_note
+        or message.animation
+    ):
         await bot.forward_message(
             chat_id=GROUP_CHAT_ID,
             from_chat_id=message.chat.id,
