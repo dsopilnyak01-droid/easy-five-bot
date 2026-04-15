@@ -2,6 +2,7 @@ import asyncio
 import os
 import urllib.parse
 import requests
+import re
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -19,7 +20,7 @@ if not MANAGER_USERNAME:
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Словник: user_id -> message_id в групі (для відповідей)
+# Словник: user_id -> message_id в групі
 user_message_map = {}
 
 def manager_link(text: str) -> str:
@@ -66,7 +67,6 @@ async def show_chat_cta(message: types.Message) -> None:
         reply_markup=main_buttons(),
     )
 
-# /start
 @dp.message(CommandStart())
 async def start(message: types.Message) -> None:
     await show_chat_cta(message)
@@ -74,7 +74,6 @@ async def start(message: types.Message) -> None:
     parts = (message.text or "").split(maxsplit=1)
     source = parts[1] if len(parts) > 1 else "unknown"
 
-    # Сповіщення в групу менеджерів
     user = message.from_user
     username = f"@{user.username}" if user.username else "немає username"
     text = (
@@ -90,7 +89,6 @@ async def start(message: types.Message) -> None:
     if LEADS_WEBHOOK_URL:
         asyncio.create_task(send_lead(user, source))
 
-# Всі повідомлення від клієнтів → пересилаємо в групу
 @dp.message(F.chat.type == "private")
 async def forward_to_group(message: types.Message) -> None:
     user = message.from_user
@@ -103,23 +101,25 @@ async def forward_to_group(message: types.Message) -> None:
     )
     await bot.send_message(GROUP_CHAT_ID, text, parse_mode="HTML")
 
-# Відповідь менеджера з групи → пересилаємо клієнту
 @dp.message(F.chat.id == GROUP_CHAT_ID, F.reply_to_message)
 async def reply_to_user(message: types.Message) -> None:
-    # Шукаємо для кого відповідь
     replied_text = message.reply_to_message.text or ""
-    # Витягуємо ID клієнта з тексту
-    import re
-    match = re.search(r"ID: (\d+)", replied_text)
+
+    match = re.search(r"ID:\s*(\d+)", replied_text)
+    if not match:
+        match = re.search(r"<code>(\d+)</code>", replied_text)
+
     if not match:
         return
+
     client_id = int(match.group(1))
     await bot.send_message(client_id, f"💬 Менеджер: {message.text}")
 
-# Меню команди
 @dp.message(Command("restart"))
 async def restart_cmd(message: types.Message) -> None:
-    await show_chat_cta(message)@dp.message(Command("contacts"))
+    await show_chat_cta(message)
+
+@dp.message(Command("contacts"))
 async def contacts_cmd(message: types.Message) -> None:
     kb = types.InlineKeyboardMarkup(
         inline_keyboard=[[
@@ -139,5 +139,5 @@ async def main() -> None:
     print("🤖 Bot started")
     await dp.start_polling(bot)
 
-if name == "__main__":
+if __name__ == "__main__":
     asyncio.run(main())
