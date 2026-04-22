@@ -222,6 +222,32 @@ async def reply_to_user(message: types.Message) -> None:
         )
 
 
+@dp.message(Command("reply"))
+async def reply_by_command(message: types.Message) -> None:
+    if message.chat.id != GROUP_CHAT_ID:
+        return
+
+    args = (message.text or "").split(maxsplit=2)
+
+    if len(args) < 3:
+        await message.reply("Формат: /reply user_id текст")
+        return
+
+    try:
+        client_id = int(args[1])
+    except ValueError:
+        await message.reply("❌ Невірний user_id")
+        return
+
+    text = args[2]
+
+    try:
+        await bot.send_message(client_id, f"💬 Менеджер: {text}")
+        await message.reply("✅ Відправлено клієнту")
+    except Exception as e:
+        await message.reply(f"❌ Помилка: {e}")
+
+
 @dp.message(Command("restart"))
 async def restart_cmd(message: types.Message) -> None:
     await show_chat_cta(message)
