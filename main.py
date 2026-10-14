@@ -3,6 +3,7 @@ import os
 import urllib.parse
 import requests
 import re
+import html
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -512,6 +513,21 @@ async def reply_by_command(
         )
 
 
+# Фільтри перевіряють стан розсилки ПІД ЧАС кожного повідомлення.
+# Це не дозволяє обробнику відповіді клієнту перехопити текст розсилки.
+def is_broadcast_draft(message: types.Message) -> bool:
+    return bool(
+        message.from_user
+        and message.from_user.id in broadcast_waiting_for_text
+        and message.text
+        and not message.text.startswith("/")
+    )
+
+
+def is_not_broadcast_draft(message: types.Message) -> bool:
+    return not is_broadcast_draft(message)
+
+
 # =========================================================
 # REPLY НА ПОВІДОМЛЕННЯ КЛІЄНТА В ГРУПІ
 # =========================================================
@@ -519,6 +535,7 @@ async def reply_by_command(
 @dp.message(
     F.chat.id == GROUP_CHAT_ID,
     F.reply_to_message,
+    is_not_broadcast_draft,
 )
 async def reply_to_user(
     message: types.Message
@@ -731,6 +748,7 @@ async def cancel_broadcast(
 @dp.message(
     F.chat.id == GROUP_CHAT_ID,
     F.text,
+    is_broadcast_draft,
 )
 async def capture_broadcast_text(
     message: types.Message
@@ -784,7 +802,7 @@ async def capture_broadcast_text(
 
     await message.reply(
         "📢 <b>Попередній перегляд:</b>\n\n"
-        f"{message.text}\n\n"
+        f"{html.escape(message.text)}\n\n"
         "⚠️ Це повідомлення буде "
         "відправлено ВСІМ користувачам "
         "із таблиці.\n\n"
