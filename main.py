@@ -199,7 +199,9 @@ async def send_bot_start_event(
 # КНОПКИ
 # =========================================================
 
-def main_buttons() -> types.InlineKeyboardMarkup:
+def main_buttons(
+    price_text: str = "Я хочу дізнатись вартість моєї роботи!",
+) -> types.InlineKeyboardMarkup:
 
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
@@ -207,7 +209,7 @@ def main_buttons() -> types.InlineKeyboardMarkup:
                 types.InlineKeyboardButton(
                     text="Дізнатися вартість моєї роботи 📚",
                     url=manager_link(
-                        "Я хочу дізнатись вартість моєї роботи!"
+                        price_text
                     ),
                 )
             ],
@@ -231,6 +233,126 @@ async def show_chat_cta(
         "Щоб зв'язатись з нашим менеджером, "
         "натискай кнопку нижче 👇🏼",
         reply_markup=main_buttons(),
+    )
+
+
+# =========================================================
+# ЛІДИ ІЗ САЙТУ
+#
+# Сайт відкриває бота посиланням:
+#   t.me/Easy_Five_bot?start=site-<тип>-<дедлайн>
+# наприклад: start=site-magisterska-tyzhden
+# =========================================================
+
+# Як лід із сайту підписується в таблиці та в групі
+SITE_SOURCE = "Сайт Оля"
+
+SITE_WORK_TYPES = {
+    # код: (назва, "вартість чого?")
+    "kursova":       ("Курсова",          "курсової роботи"),
+    "dyplomna":      ("Дипломна",         "дипломної роботи"),
+    "magisterska":   ("Магістерська",     "магістерської роботи"),
+    "referat":       ("Реферат",          "реферату"),
+    "prezentatsiia": ("Презентація",      "презентації"),
+    "ese":           ("Есе",              "есе"),
+    "tezy":          ("Тези",             "тез"),
+    "indz":          ("ІНДЗ",             "ІНДЗ"),
+    "praktychna":    ("Практична робота", "практичної роботи"),
+    "zvit":          ("Звіт з практики",  "звіту з практики"),
+    "insha":         ("Інша робота",      "моєї роботи"),
+}
+
+SITE_DEADLINES = {
+    "terminovo": "Терміново (1–2 дні)",
+    "tyzhden":   "Тиждень (3–7 днів)",
+    "nehoryt":   "Не горить (7+ днів)",
+}
+
+
+def parse_site_lead(lead_id: str) -> dict | None:
+    """Повертає дані ліда із сайту або None, якщо лід не із сайту."""
+
+    parts = lead_id.split("-")
+
+    if parts[0] != "site":
+        return None
+
+    work = SITE_WORK_TYPES.get(
+        parts[1] if len(parts) > 1 else ""
+    )
+    deadline = SITE_DEADLINES.get(
+        parts[2] if len(parts) > 2 else ""
+    )
+
+    return {
+        "work_type": work[0] if work else "",
+        "work_genitive": work[1] if work else "моєї роботи",
+        "deadline": deadline or "",
+    }
+
+
+def site_source_label(site: dict) -> str:
+    """Те, що піде в колонку «Джерело»: «Сайт · Магістерська · Тиждень (3–7 днів)»."""
+
+    return " · ".join(
+        p for p in (
+            SITE_SOURCE,
+            site["work_type"],
+            site["deadline"],
+        ) if p
+    )
+
+
+async def show_site_cta(
+    message: types.Message,
+    site: dict,
+) -> None:
+
+    # Окремий сценарій для сайту:
+    # без кнопки «Я з Instagram», з підсумком замовлення
+    # і одною кнопкою до менеджера з готовим текстом.
+
+    price_text = (
+        f"Я з сайту 🙌 Хочу дізнатись вартість "
+        f"{site['work_genitive']}!"
+    )
+
+    if site["deadline"]:
+        price_text += f" Дедлайн: {site['deadline']}."
+
+    summary = ""
+
+    if site["work_type"]:
+        summary += f"📚 Робота: <b>{html.escape(site['work_type'])}</b>\n"
+    if site["deadline"]:
+        summary += f"⏰ Дедлайн: <b>{html.escape(site['deadline'])}</b>\n"
+
+    text = (
+        "Привіт! 👋 Дякуємо, що завітав до нас із сайту EasyFive 🧡\n\n"
+        + (f"Твоє замовлення:\n{summary}\n" if summary else "")
+        + "Щоб ми швидко порахували вартість, надішли сюди:\n"
+        "• тему роботи\n"
+        "• кількість сторінок\n"
+        "• методичку або вимоги викладача (якщо є)\n\n"
+        "Або напиши менеджеру напряму — кнопка нижче 👇🏼\n\n"
+        "🎁 −20% на перше замовлення"
+    )
+
+    kb = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(
+                    text="💬 Написати менеджеру",
+                    url=manager_link(price_text),
+                )
+            ],
+        ]
+    )
+
+    await message.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=kb,
     )
 
 
@@ -342,8 +464,6 @@ async def start(
     message: types.Message
 ) -> None:
 
-    await show_chat_cta(message)
-
     parts = (
         message.text or ""
     ).split(maxsplit=1)
@@ -356,7 +476,27 @@ async def start(
 
     user = message.from_user
 
-    user_leads[user.id] = lead_id
+    # Лід із сайту? -> окреме привітання і зрозуміле джерело
+    site = parse_site_lead(lead_id)
+
+    site_info = ""
+
+    if site:
+        # У таблицю — лише походження
+        source = SITE_SOURCE
+        # Менеджеру в групу — подробиці замовлення
+        if site["work_type"]:
+            site_info += f"📚 Робота: {html.escape(site['work_type'])}\n"
+        if site["deadline"]:
+            site_info += f"⏰ Дедлайн: {html.escape(site['deadline'])}\n"
+        user_leads[user.id] = site_source_label(site)
+        await show_site_cta(message, site)
+    else:
+        source = lead_id
+        user_leads[user.id] = source
+        await show_chat_cta(message)
+
+    lead_id = source
 
     username = (
         f"@{user.username}"
@@ -369,7 +509,8 @@ async def start(
         f"👤 Ім'я: {user.full_name}\n"
         f"📱 Username: {username}\n"
         f"🆔 ID: <code>{user.id}</code>\n"
-        f"📣 Джерело: {lead_id}"
+        f"📣 Джерело: {html.escape(lead_id)}"
+        + (f"\n{site_info.rstrip()}" if site_info else "")
     )
 
     await bot.send_message(
@@ -1147,7 +1288,7 @@ async def forward_to_group(
         f"👤 {user.full_name} ({username})\n"
         f"🆔 ID: <code>{user.id}</code>\n"
         f"📣 Lead ID: "
-        f"<code>{lead_id}</code>\n\n"
+        f"<code>{html.escape(lead_id)}</code>\n\n"
         f"➡️ {content}"
     )
 
